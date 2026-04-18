@@ -11,6 +11,7 @@ data/
 *.sqlite3
 
 raw_data/
+raw_data.zip
 
 .coverage
 htmlcov/
