@@ -23,7 +23,7 @@ def query_from_text(
     offset: int,
 ) -> ListingsResponse:
     hard_facts = extract_hard_facts(query)
-    hard_facts.limit = max(limit * 5, 100)
+    hard_facts.limit = 1000
     hard_facts.offset = 0
     soft_facts = extract_soft_facts(query)
     candidates = filter_hard_facts(db_path, hard_facts)

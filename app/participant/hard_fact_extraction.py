@@ -5,9 +5,13 @@ from app.models.schemas import HardFilters
 
 _SYSTEM = (
     "Extract Swiss real estate search filters from queries in any language (English, German, French, Italian). "
-    "Only set fields explicitly mentioned; omit the rest. "
+    "Only set fields explicitly mentioned as hard requirements; omit the rest. "
+    "IMPORTANT: Words like 'idealerweise', 'gern', 'wenn möglich', 'ideally', 'preferably', 'if possible', 'nice to have' "
+    "signal soft preferences — do NOT extract these as hard filters. Only extract features as hard filters when the user "
+    "says 'must have', 'required', 'with X' as a firm requirement, or explicitly filters by it. "
     "Always normalize city names to their common English/German spelling (e.g. Genf/Genève → Geneva, Zürich → Zurich, Berne → Bern). "
-    "When a major Swiss city is mentioned, also set the canton code: "
+    "When specific cities are mentioned, set ONLY those cities in the city field — do NOT set canton unless no city is given. "
+    "Canton codes for reference only (use when no city given): "
     "Zurich/Zürich → ZH, Geneva/Genève/Genf → GE, Basel → BS, Bern → BE, Lausanne → VD, "
     "Lucerne/Luzern → LU, Zug → ZG, St. Gallen → SG, Winterthur → ZH, Lugano → TI. "
     "For room counts, set min_rooms only unless a range or maximum is explicitly stated. "

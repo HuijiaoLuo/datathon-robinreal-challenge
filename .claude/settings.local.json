@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(.venv/Scripts/python.exe -c ' *)",
-      "Bash(python3 -c \"import sys,csv; r=csv.reader\\(sys.stdin\\); print\\('\\\\n'.join\\(next\\(r\\)\\)\\)\")"
+      "Bash(python3 -c \"import sys,csv; r=csv.reader\\(sys.stdin\\); print\\('\\\\n'.join\\(next\\(r\\)\\)\\)\")",
+      "Bash(python -c ' *)"
     ]
   }
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,26 +11,46 @@ from rapidfuzz import process as fuzz_process
 
 from app.db import get_connection
 
-# Loaded once on first use — all real city names from the DB
+# Loaded once on first use
 _DB_CITIES: list[str] = []
+_DB_CITIES_NORMALIZED: list[str] = []
+
+
+def _normalize(text: str) -> str:
+    """Strip diacritics for accent-insensitive comparison (Zürich → Zurich)."""
+    return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii").lower()
 
 
 def _load_db_cities(db_path: Path) -> None:
-    global _DB_CITIES
+    global _DB_CITIES, _DB_CITIES_NORMALIZED
     if _DB_CITIES:
         return
     with get_connection(db_path) as conn:
         rows = conn.execute("SELECT DISTINCT city FROM listings WHERE city IS NOT NULL").fetchall()
     _DB_CITIES = [r[0] for r in rows if r[0]]
+    _DB_CITIES_NORMALIZED = [_normalize(c) for c in _DB_CITIES]
 
 
-def _resolve_city(name: str, db_path: Path) -> str:
-    """Return the best-matching city name as stored in the DB."""
+def _resolve_cities(name: str, db_path: Path) -> list[str]:
+    """Return all DB city variants matching the input.
+
+    First collects all cities whose normalized form exactly matches the input
+    (handles Zurich↔Zürich, zurich↔Zürich, Geneve↔Genève).
+    Falls back to high-threshold fuzzy match only when no exact normalized match exists.
+    """
     _load_db_cities(db_path)
-    # Require higher score for short inputs to avoid false matches like bsel→Chessel
-    threshold = 85 if len(name) <= 5 else 70
-    match, score, _ = fuzz_process.extractOne(name, _DB_CITIES)
-    return match if score >= threshold else name
+    normalized_name = _normalize(name)
+
+    # Exact normalized match — catches all unicode/case variants of the same city
+    exact = [_DB_CITIES[i] for i, n in enumerate(_DB_CITIES_NORMALIZED) if n == normalized_name]
+    if exact:
+        return exact
+
+    # Fuzzy fallback for genuine typos/abbreviations (high threshold to avoid false positives)
+    threshold = 90 if len(name) <= 5 else 85
+    matches = fuzz_process.extract(normalized_name, _DB_CITIES_NORMALIZED, limit=5)
+    result = [_DB_CITIES[idx] for _, score, idx in matches if score >= threshold]
+    return result if result else [name]
 
 
 @dataclass(slots=True)
@@ -88,15 +109,8 @@ def search_listings(db_path: Path, filters: HardFilterParams) -> list[dict[str, 
     city = _normalize_list(filters.city)
     canton = filters.canton.upper() if filters.canton else None
 
-    if city and canton:
-        # OR so "Zurich + ZH" returns Zürich city AND all other ZH towns
-        resolved = [_resolve_city(name, db_path) for name in city]
-        placeholders = ", ".join("?" for _ in resolved)
-        where_clauses.append(f"(city IN ({placeholders}) OR UPPER(canton) = ?)")
-        params.extend(resolved)
-        params.append(canton)
-    elif city:
-        resolved = [_resolve_city(name, db_path) for name in city]
+    if city:
+        resolved = [c for name in city for c in _resolve_cities(name, db_path)]
         placeholders = ", ".join("?" for _ in resolved)
         where_clauses.append(f"city IN ({placeholders})")
         params.extend(resolved)

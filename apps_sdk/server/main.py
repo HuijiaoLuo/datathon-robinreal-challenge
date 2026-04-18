@@ -87,10 +87,27 @@ def build_search_tool_result(
     query: str,
     payload: dict[str, Any],
 ) -> types.CallToolResult:
-    count = len(payload.get("listings", []))
-    summary = f"Showing {count} listing{'s' if count != 1 else ''} for “{query}”."
+    listings = payload.get("listings", [])
+    count = len(listings)
+    lines = [f"Showing {count} listing{'s' if count != 1 else ''} for \"{query}\".\n"]
+    for i, item in enumerate(listings, 1):
+        lst = item.get("listing", {})
+        title = lst.get("title", "Untitled")
+        city = lst.get("city") or ""
+        price = lst.get("price_chf")
+        rooms = lst.get("rooms")
+        area = lst.get("living_area_sqm")
+        score = item.get("score", 0)
+        reason = item.get("reason", "")
+        price_str = f"CHF {price:,}" if price else "price n/a"
+        rooms_str = f"{rooms} rooms" if rooms else ""
+        area_str = f"{area} sqm" if area else ""
+        details = ", ".join(filter(None, [city, rooms_str, area_str, price_str]))
+        lines.append(f"{i}. {title} — {details} (score: {score:.2f})")
+        if reason:
+            lines.append(f"   {reason}")
     return types.CallToolResult(
-        content=[types.TextContent(type="text", text=summary)],
+        content=[types.TextContent(type="text", text="\n".join(lines))],
         structuredContent=payload,
         _meta=build_tool_result_meta(),
     )
