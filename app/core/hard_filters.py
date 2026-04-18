@@ -6,7 +6,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rapidfuzz import process as fuzz_process
+
 from app.db import get_connection
+
+# Loaded once on first use — all real city names from the DB
+_DB_CITIES: list[str] = []
+
+
+def _load_db_cities(db_path: Path) -> None:
+    global _DB_CITIES
+    if _DB_CITIES:
+        return
+    with get_connection(db_path) as conn:
+        rows = conn.execute("SELECT DISTINCT city FROM listings WHERE city IS NOT NULL").fetchall()
+    _DB_CITIES = [r[0] for r in rows if r[0]]
+
+
+def _resolve_city(name: str, db_path: Path) -> str:
+    """Return the best-matching city name as stored in the DB."""
+    _load_db_cities(db_path)
+    # Require higher score for short inputs to avoid false matches like bsel→Chessel
+    threshold = 85 if len(name) <= 5 else 70
+    match, score, _ = fuzz_process.extractOne(name, _DB_CITIES)
+    return match if score >= threshold else name
 
 
 @dataclass(slots=True)
@@ -53,14 +76,16 @@ def _normalize_list(values: list[str] | None) -> list[str] | None:
 
 
 def search_listings(db_path: Path, filters: HardFilterParams) -> list[dict[str, Any]]:
+    
     where_clauses: list[str] = []
     params: list[Any] = []
 
     city = _normalize_list(filters.city)
     if city:
-        placeholders = ", ".join("?" for _ in city)
-        where_clauses.append(f"LOWER(city) IN ({placeholders})")
-        params.extend(value.lower() for value in city)
+        resolved = [_resolve_city(name, db_path) for name in city]
+        placeholders = ", ".join("?" for _ in resolved)
+        where_clauses.append(f"city IN ({placeholders})")
+        params.extend(resolved)
 
     postal_code = _normalize_list(filters.postal_code)
     if postal_code:
