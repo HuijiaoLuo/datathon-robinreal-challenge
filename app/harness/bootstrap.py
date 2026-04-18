@@ -54,6 +54,8 @@ def _schema_matches(db_path: Path) -> bool:
         "feature_wheelchair_accessible",
         "feature_private_laundry",
         "feature_minergie_certified",
+        "feature_furnished",
+        "feature_garden",
     }
 
     with get_connection(db_path) as connection:

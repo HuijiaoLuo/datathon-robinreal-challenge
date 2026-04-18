@@ -14,6 +14,9 @@ class HardFilters(BaseModel):
     max_price: int | None = Field(default=None, ge=0)
     min_rooms: float | None = Field(default=None, ge=0)
     max_rooms: float | None = Field(default=None, ge=0)
+    min_area: int | None = Field(default=None, ge=0)
+    max_area: int | None = Field(default=None, ge=0)
+    available_from: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     radius_km: float | None = Field(default=None, ge=0)

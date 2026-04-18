@@ -44,6 +44,8 @@ def create_schema(connection: sqlite3.Connection) -> None:
             feature_wheelchair_accessible INTEGER,
             feature_private_laundry INTEGER,
             feature_minergie_certified INTEGER,
+            feature_furnished INTEGER,
+            feature_garden INTEGER,
             features_json TEXT NOT NULL,
             offer_type TEXT,
             object_category TEXT,
@@ -67,7 +69,7 @@ def import_csvs(connection: sqlite3.Connection, csv_paths: Iterable[Path]) -> No
 
             connection.executemany(
                 """
-                INSERT INTO listings (
+                INSERT OR IGNORE INTO listings (
                     listing_id,
                     platform_id,
                     scrape_source,
@@ -100,6 +102,8 @@ def import_csvs(connection: sqlite3.Connection, csv_paths: Iterable[Path]) -> No
                     feature_wheelchair_accessible,
                     feature_private_laundry,
                     feature_minergie_certified,
+                    feature_furnished,
+                    feature_garden,
                     features_json,
                     offer_type,
                     object_category,
@@ -109,7 +113,7 @@ def import_csvs(connection: sqlite3.Connection, csv_paths: Iterable[Path]) -> No
                     location_address_json,
                     orig_data_json,
                     raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )

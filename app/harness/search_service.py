@@ -23,14 +23,15 @@ def query_from_text(
     offset: int,
 ) -> ListingsResponse:
     hard_facts = extract_hard_facts(query)
-    hard_facts.limit = limit
-    hard_facts.offset = offset
+    hard_facts.limit = max(limit * 5, 100)
+    hard_facts.offset = 0
     soft_facts = extract_soft_facts(query)
     candidates = filter_hard_facts(db_path, hard_facts)
     candidates = filter_soft_facts(candidates, soft_facts)
+    ranked = rank_listings(candidates, soft_facts)
     return ListingsResponse(
-        listings=rank_listings(candidates, soft_facts),
-        meta={},
+        listings=ranked[offset : offset + limit],
+        meta={"total_candidates": len(candidates), "returned": min(limit, len(ranked))},
     )
 
 
@@ -58,6 +59,9 @@ def to_hard_filter_params(hard_facts: HardFilters) -> HardFilterParams:
         max_price=hard_facts.max_price,
         min_rooms=hard_facts.min_rooms,
         max_rooms=hard_facts.max_rooms,
+        min_area=hard_facts.min_area,
+        max_area=hard_facts.max_area,
+        available_from=hard_facts.available_from,
         latitude=hard_facts.latitude,
         longitude=hard_facts.longitude,
         radius_km=hard_facts.radius_km,

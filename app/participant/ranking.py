@@ -3,24 +3,92 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.claude import RANKING_MAX_TOKENS, SMART_MODEL, client as _client
 from app.models.schemas import ListingData, RankedListingResult
+
+# _SYSTEM = """\
+# You are a Swiss real estate agent. Score each listing 0.0–1.0 based on how well it matches \
+# the user's soft preferences. Return a JSON array in the same order as the input, each item \
+# with "listing_id", "score" (float 0-1), and "reason" (one sentence in English).
+# Only use the listing content — do not invent details not present.
+# """
 
 
 def rank_listings(
     candidates: list[dict[str, Any]],
     soft_facts: dict[str, Any],
 ) -> list[RankedListingResult]:
-    # Intentionally stubbed. Teams can replace this with a scoring or
-    # reranking stage that uses the soft_facts payload.
+    if not candidates:
+        return []
+
+    # scored = _score_with_claude(candidates, soft_facts)
+    # scored.sort(key=lambda x: x["score"], reverse=True)
+    # return [
+    #     RankedListingResult(
+    #         listing_id=str(item["listing_id"]),
+    #         score=item["score"],
+    #         reason=item["reason"],
+    #         listing=_to_listing_data(_find(candidates, item["listing_id"])),
+    #     )
+    #     for item in scored
+    # ]
+
     return [
         RankedListingResult(
-            listing_id=str(candidate["listing_id"]),
-            score=1.0,
-            reason="Matched hard filters; soft ranking stub.",
-            listing=_to_listing_data(candidate),
+            listing_id=str(c["listing_id"]),
+            score=0.0,
+            reason=str(soft_facts),
+            listing=_to_listing_data(c),
         )
-        for candidate in candidates
+        for c in candidates
     ]
+
+
+def _score_with_claude(
+    candidates: list[dict[str, Any]],
+    soft_facts: dict[str, Any],
+) -> list[dict[str, Any]]:
+    # Build a compact representation of each listing for Claude
+    listings_text = json.dumps([
+        {
+            "listing_id": c["listing_id"],
+            "title": c.get("title", ""),
+            "description": (c.get("description") or "")[:500],  # cap to save tokens
+            "price": c.get("price"),
+            "rooms": c.get("rooms"),
+            "area": c.get("area"),
+            "features": c.get("features", []),
+            "city": c.get("city"),
+            "distance_public_transport": c.get("distance_public_transport"),
+            "distance_shop": c.get("distance_shop"),
+            "distance_kindergarten": c.get("distance_kindergarten"),
+        }
+        for c in candidates
+    ], ensure_ascii=False)
+
+    user_message = (
+        f"User query: {soft_facts.get('raw_query', '')}\n\n"
+        f"Soft preferences: {json.dumps({k: v for k, v in soft_facts.items() if k != 'raw_query'}, ensure_ascii=False)}\n\n"
+        f"Listings to score:\n{listings_text}"
+    )
+
+    response = _client.messages.create(
+        model=SMART_MODEL,
+        max_tokens=RANKING_MAX_TOKENS,
+        system=_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    text = next(b.text for b in response.content if b.type == "text")
+
+    # Extract JSON array from response
+    start = text.find("[")
+    end = text.rfind("]") + 1
+    return json.loads(text[start:end])
+
+
+def _find(candidates: list[dict[str, Any]], listing_id: Any) -> dict[str, Any]:
+    return next(c for c in candidates if str(c["listing_id"]) == str(listing_id))
 
 
 def _to_listing_data(candidate: dict[str, Any]) -> ListingData:

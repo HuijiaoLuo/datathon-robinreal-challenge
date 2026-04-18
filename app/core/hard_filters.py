@@ -41,6 +41,9 @@ class HardFilterParams:
     max_price: int | None = None
     min_rooms: float | None = None
     max_rooms: float | None = None
+    min_area: int | None = None
+    max_area: int | None = None
+    available_from: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     radius_km: float | None = None
@@ -65,6 +68,8 @@ FEATURE_COLUMN_MAP = {
     "wheelchair_accessible": "feature_wheelchair_accessible",
     "private_laundry": "feature_private_laundry",
     "minergie_certified": "feature_minergie_certified",
+    "furnished": "feature_furnished",
+    "garden": "feature_garden",
 }
 
 
@@ -81,21 +86,29 @@ def search_listings(db_path: Path, filters: HardFilterParams) -> list[dict[str, 
     params: list[Any] = []
 
     city = _normalize_list(filters.city)
-    if city:
+    canton = filters.canton.upper() if filters.canton else None
+
+    if city and canton:
+        # OR so "Zurich + ZH" returns Zürich city AND all other ZH towns
+        resolved = [_resolve_city(name, db_path) for name in city]
+        placeholders = ", ".join("?" for _ in resolved)
+        where_clauses.append(f"(city IN ({placeholders}) OR UPPER(canton) = ?)")
+        params.extend(resolved)
+        params.append(canton)
+    elif city:
         resolved = [_resolve_city(name, db_path) for name in city]
         placeholders = ", ".join("?" for _ in resolved)
         where_clauses.append(f"city IN ({placeholders})")
         params.extend(resolved)
+    elif canton:
+        where_clauses.append("UPPER(canton) = ?")
+        params.append(canton)
 
     postal_code = _normalize_list(filters.postal_code)
     if postal_code:
         placeholders = ", ".join("?" for _ in postal_code)
         where_clauses.append(f"postal_code IN ({placeholders})")
         params.extend(postal_code)
-
-    if filters.canton:
-        where_clauses.append("UPPER(canton) = ?")
-        params.append(filters.canton.upper())
 
     if filters.min_price is not None:
         where_clauses.append("price >= ?")
@@ -113,22 +126,36 @@ def search_listings(db_path: Path, filters: HardFilterParams) -> list[dict[str, 
         where_clauses.append("rooms <= ?")
         params.append(filters.max_rooms)
 
+    if filters.min_area is not None:
+        where_clauses.append("area >= ?")
+        params.append(filters.min_area)
+
+    if filters.max_area is not None:
+        where_clauses.append("area <= ?")
+        params.append(filters.max_area)
+
+    if filters.available_from is not None:
+        where_clauses.append("(available_from IS NULL OR available_from <= ?)")
+        params.append(filters.available_from)
+
     if filters.offer_type:
         where_clauses.append("UPPER(offer_type) = ?")
         params.append(filters.offer_type.upper())
 
     object_category = _normalize_list(filters.object_category)
     if object_category:
-        placeholders = ", ".join("?" for _ in object_category)
-        where_clauses.append(f"object_category IN ({placeholders})")
-        params.extend(object_category)
+        # Use LIKE so "Wohnung" also matches "Möblierte Wohnung", "Dachwohnung" etc.
+        like_clauses = " OR ".join("object_category LIKE ?" for _ in object_category)
+        where_clauses.append(f"({like_clauses})")
+        params.extend(f"%{c}%" for c in object_category)
 
     features = _normalize_list(filters.features)
     if features:
         for feature_name in features:
             column_name = FEATURE_COLUMN_MAP.get(feature_name)
             if column_name:
-                where_clauses.append(f"{column_name} = 1")
+                # NULL = no data (unknown) → include; 0 = confirmed absent → exclude
+                where_clauses.append(f"({column_name} = 1 OR {column_name} IS NULL)")
 
     query = """
         SELECT

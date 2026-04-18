@@ -54,18 +54,26 @@ def _parse_bool(value: str | None) -> bool | None:
     if normalized in {"false", "0", "no", "n"}:
         return False
 
-    return True if cleaned else None
+    return None
 
 
-def _is_truthy(value: Any) -> bool:
+def _is_truthy(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
         return value > 0
     if isinstance(value, str):
         normalized = value.strip().lower()
-        return normalized in {"true", "1", "yes", "y", "ja"} or normalized.isdigit() and int(normalized) > 0
-    return False
+        if not normalized or normalized == "null":
+            return None
+        if normalized in {"true", "1", "yes", "y", "ja"}:
+            return True
+        if normalized in {"false", "0", "no", "n"}:
+            return False
+        if normalized.isdigit():
+            return int(normalized) > 0
+        return None
+    return None
 
 
 def _merge_optional_bools(*values: bool | None) -> bool | None:
@@ -238,6 +246,16 @@ def _derive_features(
             list_present=main_data_present,
             keys=("IsMinergieCertified",),
         ),
+        "furnished": _main_data_flag(
+            main_data_values,
+            list_present=main_data_present,
+            keys=("IsFurnished",),
+        ),
+        "garden": _feature_list_flag(
+            feature_keys,
+            list_present=feature_list_present,
+            keys=("HasGarden",),
+        ),
     }
     enabled_features = [
         feature_name
@@ -303,6 +321,8 @@ def prepare_listing_row(row: dict[str, str]) -> tuple[Any, ...]:
         1 if feature_values["wheelchair_accessible"] is True else 0 if feature_values["wheelchair_accessible"] is False else None,
         1 if feature_values["private_laundry"] is True else 0 if feature_values["private_laundry"] is False else None,
         1 if feature_values["minergie_certified"] is True else 0 if feature_values["minergie_certified"] is False else None,
+        1 if feature_values["furnished"] is True else 0 if feature_values["furnished"] is False else None,
+        1 if feature_values["garden"] is True else 0 if feature_values["garden"] is False else None,
         json.dumps(enabled_features, ensure_ascii=True),
         offer_type,
         _clean_text(row.get("object_category")),
