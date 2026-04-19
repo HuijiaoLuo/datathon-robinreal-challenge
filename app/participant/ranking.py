@@ -9,8 +9,10 @@ from typing import Any
 from app.models.schemas import ListingData, RankedListingResult
 
 _CORPUS: tuple | None = None
+_SIGLIP_MODEL: tuple | None = None  # (model, processor)
 _DATA_DIR = Path("/workshop/retrieval_aws/data")
 RRF_K = 60
+_SIGLIP_MODEL_ID = "google/siglip2-so400m-patch14-384"
 
 
 def _load_corpus() -> tuple:
@@ -19,7 +21,7 @@ def _load_corpus() -> tuple:
         return _CORPUS
 
     d = np.load(_DATA_DIR / "embeddings_bge_dense.npz")
-    ids = list(d["ids"])
+    ids = [str(x) for x in d["ids"]]
     dense_vecs = d["vecs"].astype(np.float32)
     id_to_idx = {lid: i for i, lid in enumerate(ids)}
 
@@ -33,13 +35,39 @@ def _load_corpus() -> tuple:
     siglip_path = _DATA_DIR / "siglip_image_vecs.npz"
     if siglip_path.exists():
         s = np.load(siglip_path)
-        siglip_ids = list(s["ids"])
+        siglip_ids = [str(x) for x in s["ids"]]
         siglip_vecs = s["vecs"].astype(np.float32)
         sid_to_idx = {lid: i for i, lid in enumerate(siglip_ids)}
         siglip = (siglip_vecs, sid_to_idx)
 
     _CORPUS = (dense_vecs, sparse_by_id, id_to_idx, siglip)
     return _CORPUS
+
+
+def _load_siglip() -> tuple:
+    global _SIGLIP_MODEL
+    if _SIGLIP_MODEL is not None:
+        return _SIGLIP_MODEL
+    import onnxruntime as ort
+    from transformers import AutoProcessor
+    proc = AutoProcessor.from_pretrained(_SIGLIP_MODEL_ID)
+    onnx_path = str(_DATA_DIR / "siglip_text_tower.onnx")
+    sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+    _SIGLIP_MODEL = (sess, proc)
+    return _SIGLIP_MODEL
+
+
+def _encode_query_siglip(query: str) -> np.ndarray | None:
+    try:
+        sess, proc = _load_siglip()
+        inputs = proc(text=[query], return_tensors="np", padding="max_length", truncation=True, max_length=64)
+        ids = inputs["input_ids"].astype(np.int64)
+        result = sess.run(None, {"input_ids": ids})[0]
+        v = result[0].astype(np.float32)
+        norm = np.linalg.norm(v)
+        return v / max(norm, 1e-9)
+    except Exception:
+        return None
 
 
 def _rrf_fuse(rank_lists: list[list[str]], k: int = RRF_K) -> list[tuple[str, float]]:
@@ -76,8 +104,8 @@ def rank_listings(
     pool = [str(c["listing_id"]) for c in candidates]
 
     # BGE dense scores
-    cand_idxs = np.array([id_to_idx[lid] for lid in pool if lid in id_to_idx])
     valid_pool = [lid for lid in pool if lid in id_to_idx]
+    cand_idxs = np.array([id_to_idx[lid] for lid in valid_pool])
     d_scores = dense_vecs[cand_idxs] @ qv[0]
     dense_rank = [valid_pool[i] for i in np.argsort(-d_scores)]
 
@@ -90,16 +118,19 @@ def rank_listings(
 
     rank_lists: list[list[str]] = [dense_rank, sparse_rank]
 
-    # BM25 as 3rd signal (top-N only — lower influence than BGE)
-    bm25_top: dict[str, int] = soft_facts.get("_bm25_top", {})
-    if bm25_top:
-        # Only include BM25 hits that are in the candidate pool
-        bm25_rank = [lid for lid in sorted(bm25_top, key=bm25_top.__getitem__) if lid in set(valid_pool)]
-        if bm25_rank:
-            rank_lists.append(bm25_rank)
-
-    # SigLIP image scores (query text tower not available without model — skip)
-    # TODO: encode query with SigLIP text tower when model is cached locally
+    # SigLIP image scores: encode query with text tower → dot product with image vecs
+    if siglip is not None:
+        siglip_vecs, sid_to_idx = siglip
+        query_text = soft_facts.get("_query", "")
+        if query_text:
+            qsig = _encode_query_siglip(query_text)
+            if qsig is not None:
+                valid_sig = [lid for lid in valid_pool if lid in sid_to_idx]
+                if valid_sig:
+                    sig_idxs = np.array([sid_to_idx[lid] for lid in valid_sig])
+                    sig_scores = siglip_vecs[sig_idxs] @ qsig
+                    siglip_rank = [valid_sig[i] for i in np.argsort(-sig_scores)]
+                    rank_lists.append(siglip_rank)
 
     fused = _rrf_fuse(rank_lists)
     score_map = {lid: score for lid, score in fused}
@@ -113,7 +144,7 @@ def rank_listings(
         results.append(RankedListingResult(
             listing_id=lid,
             score=round(rrf_score, 6),
-            reason="BGE-M3 dense+sparse RRF.",
+            reason="BGE-M3 dense+sparse+SigLIP RRF.",
             listing=_to_listing_data(c),
         ))
 
@@ -128,6 +159,26 @@ def rank_listings(
                 reason="No embedding available.",
                 listing=_to_listing_data(c),
             ))
+
+    # BM25 diversity injection: top-20% BM25 hits not in top-100 BGE+SigLIP → replace tail
+    bm25_top: dict[str, int] = soft_facts.get("_bm25_top", {})
+    if bm25_top and results:
+        bm25_sorted = sorted(bm25_top, key=bm25_top.__getitem__)
+        top20 = bm25_sorted[:max(1, len(bm25_sorted) // 5)]
+        top_front_ids = {r.listing_id for r in results[:100]}
+        new_from_bm25 = [lid for lid in top20 if lid not in top_front_ids and lid in cand_map]
+        if new_from_bm25:
+            tail_score = results[-1].score * 0.9 if results else 0.0
+            inject = [
+                RankedListingResult(
+                    listing_id=lid,
+                    score=round(tail_score, 6),
+                    reason="BM25 diversity.",
+                    listing=_to_listing_data(cand_map[lid]),
+                )
+                for lid in new_from_bm25
+            ]
+            results = results[: len(results) - len(inject)] + inject
 
     return results
 
