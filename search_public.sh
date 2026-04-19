@@ -1,16 +1,16 @@
 #!/bin/bash
-# 使用方法: ./search_public.sh "3 room in Zurich" 5
+# usage: ./search_public.sh "3 room in Zurich" 5
 
 QUERY=${1:-"3 room apartment in Zurich"}
 LIMIT=${2:-5}
-# 使用你自己的 MCP 公网链接
+# Use the public MCP endpoint for testing
 PUBLIC_URL="https://princeton-sage-handheld-trunk.trycloudflare.com"
 
 echo "🔍 Searching: $QUERY"
 echo "📍 Using: $PUBLIC_URL"
 echo ""
 
-# 调用 MCP 搜索
+# call the search_listings tool via MCP and extract the first result
 curl -s -X POST "$PUBLIC_URL/mcp" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
