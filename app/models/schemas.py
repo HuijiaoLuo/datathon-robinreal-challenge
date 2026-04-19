@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class HardFilters(BaseModel):
     city: list[str] | None = None
+    neighborhood: list[str] | None = None
     postal_code: list[str] | None = None
     canton: str | None = None
     min_price: int | None = Field(default=None, ge=0)
@@ -17,6 +18,7 @@ class HardFilters(BaseModel):
     min_area: int | None = Field(default=None, ge=0)
     max_area: int | None = Field(default=None, ge=0)
     available_from: str | None = None
+    near_place: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     radius_km: float | None = Field(default=None, ge=0)

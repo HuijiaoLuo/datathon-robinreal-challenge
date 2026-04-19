@@ -10,6 +10,7 @@ _SYSTEM = (
     "signal soft preferences — do NOT extract these as hard filters. Only extract features as hard filters when the user "
     "says 'must have', 'required', 'with X' as a firm requirement, or explicitly filters by it. "
     "Always normalize city names to their common English/German spelling (e.g. Genf/Genève → Geneva, Zürich → Zurich, Berne → Bern). "
+    "When a district or neighborhood is mentioned (e.g. Oerlikon, Altstetten, Wiedikon, Kreis 4), set the parent city in 'city' (e.g. Zurich) AND set the district name in 'neighborhood'. "
     "When specific cities are mentioned, set ONLY those cities in the city field — do NOT set canton unless no city is given. "
     "Canton codes for reference only (use when no city given): "
     "Zurich/Zürich → ZH, Geneva/Genève/Genf → GE, Basel → BS, Bern → BE, Lausanne → VD, "
@@ -17,7 +18,10 @@ _SYSTEM = (
     "For room counts, set min_rooms only unless a range or maximum is explicitly stated. "
     "For area, extract min_area/max_area in square metres if mentioned. "
     "For available_from, use ISO date format YYYY-MM-DD (e.g. 'from June 2026' → '2026-06-01'). "
-    "Always set offer_type to RENT unless the user explicitly wants to buy."
+    "Always set offer_type to RENT unless the user explicitly wants to buy. "
+    "If the user mentions proximity to a landmark or institution (e.g. 'near ETH', 'close to EPFL', 'near the train station'), "
+    "set near_place to the landmark name (e.g. 'ETH Zürich', 'EPFL Lausanne', 'Zurich Hauptbahnhof'). "
+    "Do NOT set latitude/longitude/radius_km yourself — leave those empty."
 )
 
 _TOOL = {
@@ -27,6 +31,7 @@ _TOOL = {
         "type": "object",
         "properties": {
             "city":            {"type": "array", "items": {"type": "string"}},
+            "neighborhood":    {"type": "array", "items": {"type": "string"}, "description": "District/neighborhood names within the city (e.g. Oerlikon, Altstetten, Kreis 4)"},
             "postal_code":     {"type": "array", "items": {"type": "string"}},
             "canton":          {"type": "string", "description": "2-letter code e.g. ZH"},
             "min_price":       {"type": "integer"},
@@ -36,6 +41,7 @@ _TOOL = {
             "min_area":        {"type": "integer", "description": "Minimum living area in sqm"},
             "max_area":        {"type": "integer", "description": "Maximum living area in sqm"},
             "available_from":  {"type": "string", "description": "ISO date YYYY-MM-DD, latest move-in date acceptable"},
+            "near_place":      {"type": "string", "description": "Landmark/institution name to geocode (e.g. 'ETH Zürich', 'EPFL Lausanne'). Do not set latitude/longitude yourself."},
             "latitude":        {"type": "number"},
             "longitude":       {"type": "number"},
             "radius_km":       {"type": "number"},

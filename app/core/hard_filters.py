@@ -62,13 +62,17 @@ class HardFilterParams:
     max_price: int | None = None
     min_rooms: float | None = None
     max_rooms: float | None = None
+    rooms_values: list[float] | None = None   # if set, overrides min/max_rooms with IN list
+    rooms_allow_null: bool = False             # include listings where rooms IS NULL
     min_area: int | None = None
     max_area: int | None = None
+    area_allow_null: bool = False              # include listings where area IS NULL
     available_from: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     radius_km: float | None = None
     features: list[str] | None = None
+    features_min_match: int | None = None  # if set, require at least N features to match (SUM); else AND all
     offer_type: str | None = None
     object_category: list[str] | None = None
     limit: int = 20
@@ -132,20 +136,26 @@ def search_listings(db_path: Path, filters: HardFilterParams) -> list[dict[str, 
         where_clauses.append("price <= ?")
         params.append(filters.max_price)
 
-    if filters.min_rooms is not None:
-        where_clauses.append("rooms >= ?")
-        params.append(filters.min_rooms)
+    if filters.rooms_values is not None:
+        placeholders = ", ".join("?" * len(filters.rooms_values))
+        null_clause = "rooms IS NULL OR " if filters.rooms_allow_null else ""
+        where_clauses.append(f"({null_clause}rooms IN ({placeholders}))")
+        params.extend(filters.rooms_values)
+    else:
+        null_clause = "rooms IS NULL OR " if filters.rooms_allow_null else ""
+        if filters.min_rooms is not None:
+            where_clauses.append(f"({null_clause}rooms >= ?)")
+            params.append(filters.min_rooms)
+        if filters.max_rooms is not None:
+            where_clauses.append(f"({null_clause}rooms <= ?)")
+            params.append(filters.max_rooms)
 
-    if filters.max_rooms is not None:
-        where_clauses.append("rooms <= ?")
-        params.append(filters.max_rooms)
-
+    null_clause = "area IS NULL OR " if filters.area_allow_null else ""
     if filters.min_area is not None:
-        where_clauses.append("area >= ?")
+        where_clauses.append(f"({null_clause}area >= ?)")
         params.append(filters.min_area)
-
     if filters.max_area is not None:
-        where_clauses.append("area <= ?")
+        where_clauses.append(f"({null_clause}area <= ?)")
         params.append(filters.max_area)
 
     if filters.available_from is not None:
@@ -165,11 +175,16 @@ def search_listings(db_path: Path, filters: HardFilterParams) -> list[dict[str, 
 
     features = _normalize_list(filters.features)
     if features:
-        for feature_name in features:
-            column_name = FEATURE_COLUMN_MAP.get(feature_name)
-            if column_name:
-                # NULL = no data (unknown) → include; 0 = confirmed absent → exclude
-                where_clauses.append(f"({column_name} = 1 OR {column_name} IS NULL)")
+        cols = [FEATURE_COLUMN_MAP[f] for f in features if f in FEATURE_COLUMN_MAP]
+        if cols:
+            if filters.features_min_match is not None:
+                # Soft: require at least N features to match (NULL counts as 0)
+                sum_expr = " + ".join(f"COALESCE({c}, 0)" for c in cols)
+                where_clauses.append(f"({sum_expr}) >= {filters.features_min_match}")
+            else:
+                # Hard: all features must match (NULL = unknown → include)
+                for col in cols:
+                    where_clauses.append(f"({col} = 1 OR {col} IS NULL)")
 
     query = """
         SELECT
