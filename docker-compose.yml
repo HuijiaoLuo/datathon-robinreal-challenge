@@ -1,0 +1,33 @@
+services:
+  api:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    environment:
+      LISTINGS_RAW_DATA_DIR: /app/raw_data
+      LISTINGS_DB_PATH: /data/listings.db
+    volumes:
+      - listings_data:/data
+      - .:/app
+      - ./raw_data:/app/raw_data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  mcp:
+    build:
+      context: .
+    command: /app/scripts/start_mcp_with_tunnel.sh
+    environment:
+      APPS_SDK_LISTINGS_API_BASE_URL: http://api:8000
+      APPS_SDK_PORT: 8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      - api
+    volumes:
+      - .:/app
+      - tunnel_data:/tmp
+
+volumes:
+  listings_data:
+  tunnel_data:

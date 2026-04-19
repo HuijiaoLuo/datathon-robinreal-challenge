@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+data/
+*.db
+tunnel_data/
+raw_data/*.csv
+raw_data/*.zip
+# Data files
+raw_data.zip
+raw_data_whole/
+*.csv
+*.db
