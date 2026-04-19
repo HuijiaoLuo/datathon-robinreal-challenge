@@ -1,18 +1,18 @@
 #!/bin/sh
-echo "启动 Cloudflare 隧道..."
+echo " Starting Cloudflare tunnel..."
 mkdir -p /tmp
 
-# 等待 MCP 服务启动
-echo "等待 MCP 服务启动..."
+# Wait for the MCP service to be ready before starting the tunnel
+echo "Waiting for MCP service to start..."
 sleep 5
 
-# 运行隧道
+# Start the Cloudflare tunnel and extract the public URL
 cloudflared tunnel --url http://mcp:8001 2>&1 | while read line; do
     echo "$line"
-    # 提取 trycloudflare URL
+    # Extract the trycloudflare URL
     echo "$line" | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | head -1 | while read url; do
         if [ ! -z "$url" ]; then
-            echo "发现隧道 URL: $url"
+            echo "Found tunnel URL: $url"
             echo "$url" > /tmp/tunnel_url.txt
         fi
     done
